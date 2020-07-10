@@ -19,14 +19,25 @@ yesterday = today - timedelta(days=1)
 today = today.strftime('%Y-%m-%d')
 yesterday = yesterday.strftime('%Y-%m-%d')
 
-print(today)
-print(yesterday)
+# Get Terms
+termlist = s3.Object('tweet-vectors', 'terms/termslist.txt').get()['Body'].read().decode('utf-8')
+termlist = termlist.split('\n')
 
-# Set function to clean tweets
-def clean_tweet(x):
-    out = re.sub(r"(https?.+\s|[\w\.]+\.(com|co\.uk|net|co))"," ", x) # remove urls
-    out = re.sub(r"(\.|\?|\!)" ,r" \1 ", out) # split symbols to own token
-    return re.sub(emoji.get_emoji_regexp(), r' \1 ', out.lower()).split() # Split emojis to own tokens
+# Get Trends and add terms to list
+obj = s3.Object("socialtrendingtweets-v1", 'trends/trends_{}.json'.format(today))
+file_content = obj.get()['Body'].read().decode('utf-8')
+json_content = json.loads(file_content)
+names = [a['name'].lower() for a in json_content['trends'] if len(a['name'].split()) > 1]
+termlist += names
+s3.Object('tweet-vectors', 'terms/termslist.txt').put(Body="\n".join(termlist))
+    
+
+def clean_tweet(x):    
+    out = re.sub(r"(https?.+\s|[\w\.]+\.(com|co\.uk|net|co))"," ", x)   
+    out = re.sub(r"(\.|\?|\!|\…|\,)" ,r" \1 ", out)
+    for name in termlist:
+        out = re.sub(r'{}'.format(name), name.replace(' ', '_'), out.lower())
+    return re.sub(emoji.get_emoji_regexp(), r' \1 ', out.lower()).split()
 
 # Set Session
 session = boto3.Session()
@@ -47,7 +58,6 @@ for x in tqdm(tweet_files):
 all_tweets = []
 for tweet in results:
     all_tweets.append(clean_tweet(tweet['full_text']))
-
 
 # Load Yesterdays Word2Vec Model
 with BytesIO() as data:
